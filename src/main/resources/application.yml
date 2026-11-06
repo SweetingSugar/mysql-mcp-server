@@ -1,3 +1,37 @@
 server:
   port: 8090
 
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/ai_chat?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:12345678}
+    hikari:
+      read-only: true
+  ai:
+    mcp:
+      server:
+        name: mysql-mcp-server
+        version: 0.0.1
+        type: SYNC
+        protocol: STREAMABLE
+        instructions: Use the read-only database tools to inspect schema and query data.
+        streamable-http:
+          mcp-endpoint: /mcp
+        capabilities:
+          tool: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+app:
+  mcp:
+    endpoint-path: /mcp
+    auth-token: ${APP_MCP_AUTH_TOKEN:mysql-mcp-server-token}
+  query:
+    max-rows: ${APP_QUERY_MAX_ROWS:1000}
+    max-result-bytes: ${APP_QUERY_MAX_RESULT_BYTES:1048576}
+    timeout-seconds: ${APP_QUERY_TIMEOUT_SECONDS:10}
