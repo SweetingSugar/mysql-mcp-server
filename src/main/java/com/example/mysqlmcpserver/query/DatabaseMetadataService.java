@@ -4,49 +4,35 @@ import com.example.mysqlmcpserver.query.model.ColumnDescription;
 import com.example.mysqlmcpserver.query.model.TableDescription;
 import com.example.mysqlmcpserver.query.model.TableListResult;
 import com.example.mysqlmcpserver.query.model.TableSummary;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StreamUtils;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Service
 public class DatabaseMetadataService {
 
-    private static final String LIST_TABLES_SQL = """
-            SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
-            FROM information_schema.tables
-            WHERE TABLE_SCHEMA = DATABASE()
-            ORDER BY TABLE_NAME
-            """;
-
-    private static final String DESCRIBE_TABLE_SQL = """
-            SELECT c.TABLE_SCHEMA, c.TABLE_NAME, t.TABLE_TYPE,
-                   c.COLUMN_NAME, c.DATA_TYPE, c.COLUMN_TYPE, c.IS_NULLABLE,
-                   c.COLUMN_DEFAULT, c.CHARACTER_SET_NAME, c.COLLATION_NAME,
-                   k.ORDINAL_POSITION AS PRIMARY_KEY_POSITION
-            FROM information_schema.columns c
-            JOIN information_schema.tables t
-              ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
-             AND t.TABLE_NAME = c.TABLE_NAME
-            LEFT JOIN information_schema.key_column_usage k
-              ON k.TABLE_SCHEMA = c.TABLE_SCHEMA
-             AND k.TABLE_NAME = c.TABLE_NAME
-             AND k.COLUMN_NAME = c.COLUMN_NAME
-             AND k.CONSTRAINT_NAME = 'PRIMARY'
-            WHERE c.TABLE_SCHEMA = DATABASE()
-              AND c.TABLE_NAME = ?
-            ORDER BY c.ORDINAL_POSITION
-            """;
-
     private final JdbcTemplate jdbcTemplate;
+    private final String listTablesSql;
+    private final String describeTableSql;
 
-    public DatabaseMetadataService(JdbcTemplate jdbcTemplate) {
+    public DatabaseMetadataService(
+            JdbcTemplate jdbcTemplate,
+            @Value("classpath:sql/metadata-list-tables.sql") Resource listTablesResource,
+            @Value("classpath:sql/metadata-describe-table.sql") Resource describeTableResource) {
         this.jdbcTemplate = jdbcTemplate;
+        this.listTablesSql = readSql(listTablesResource);
+        this.describeTableSql = readSql(describeTableResource);
     }
 
     public TableListResult listTables() {
         List<TableSummary> tables = jdbcTemplate.query(
-                LIST_TABLES_SQL,
+                listTablesSql,
                 (resultSet, rowNum) -> new TableSummary(
                         resultSet.getString("TABLE_SCHEMA"),
                         resultSet.getString("TABLE_NAME"),
@@ -60,7 +46,7 @@ public class DatabaseMetadataService {
         }
 
         List<TableRow> rows = jdbcTemplate.query(
-                DESCRIBE_TABLE_SQL,
+                describeTableSql,
                 preparedStatement -> preparedStatement.setString(1, tableName),
                 (resultSet, rowNum) -> new TableRow(
                         resultSet.getString("TABLE_SCHEMA"),
@@ -86,6 +72,17 @@ public class DatabaseMetadataService {
                 first.tableName(),
                 first.tableType(),
                 rows.stream().map(TableRow::column).toList());
+    }
+
+    private static String readSql(Resource resource) {
+        try (var inputStream = resource.getInputStream()) {
+            return StreamUtils.copyToString(inputStream, StandardCharsets.UTF_8);
+        }
+        catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Unable to load SQL resource: " + resource.getDescription(),
+                    exception);
+        }
     }
 
     private Integer primaryKeyPosition(java.sql.ResultSet resultSet) throws java.sql.SQLException {
